@@ -1,31 +1,25 @@
 use std::{
     io::Cursor,
-    collections::HashMap
 };
 use image::{ImageFormat, ImageReader};
-use std::fs::File;
-use std::io::Write;
-// fn main() {
-//     convert_image();
-// }
 use serde::Deserialize;
-
-// fn convert_image()-> Result<(), Box<dyn std::error::Error>> {
-//     // 1. Load the image from a file.
-//     let img = ImageReader::open("my-image.png")?.decode()?;
-//     // 2. Create an in-memory buffer.
-//     let mut bytes: Vec<u8> = Vec::new();
-//     // 3. Write the image to the buffer in JPEG format.
-//     img.write_to(&mut Cursor::new(&mut bytes), ImageFormat::Jpeg)?;
-//     // 4. Save the buffer to a new file.
-//     let mut file = File::create("new-image.jpg")?;
-//     file.write_all(&bytes)?;
-//     Ok(())
-// }
-
 use axum::{
-    Router, extract::{Path, Query, rejection::QueryRejection}, http::{StatusCode, header::{self, HeaderMap}}, routing::get
+    Router,
+    extract::{Path, Query, rejection::QueryRejection},
+    http::{StatusCode, header::{self, HeaderMap, HeaderValue}},
+    routing::get,
+    response::IntoResponse
 };
+
+fn convert_image(image_name: &String, format: ImageFormat) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
+    // 1. Load the image from a file.
+    let img = ImageReader::open(image_name)?.decode()?;
+    // 2. Create an in-memory buffer.
+    let mut bytes: Vec<u8> = Vec::new();
+    // 3. Write the image to the buffer in the chosen format.
+    img.write_to(&mut Cursor::new(&mut bytes), format)?;
+    Ok(bytes)
+}
 
 
 #[derive(Debug, Deserialize)]
@@ -56,13 +50,24 @@ static PREFERRED_FORMATS: &[(&str, ImageFormat)] = &[
     ("image/png", ImageFormat::Png),
 ];
 
+// Función de utilidad para obtener el MIME type desde ImageFormat
+fn get_mime_from_format(format: ImageFormat) -> &'static str {
+    match format {
+        ImageFormat::Avif => "image/avif",
+        ImageFormat::WebP => "image/webp",
+        ImageFormat::Jpeg => "image/jpeg",
+        ImageFormat::Png => "image/png",
+        _ => "application/octet-stream", // Un tipo genérico si no hay coincidencia
+    }
+}
+
 #[axum::debug_handler]
 async fn handler(
     Path(path): Path<String>,
-    query_result: Result<Query<Size>, QueryRejection>,
+    _query_result: Result<Query<Size>, QueryRejection>, // Lo mantenemos por si se usa en el futuro
     headers: HeaderMap,
-) -> Result<impl axum::response::IntoResponse, (StatusCode, String)> {
-    // 2. Establece un formato por defecto (ej. Jpeg) por si no hay coincidencias.
+) -> Result<impl IntoResponse, (StatusCode, String)> {
+    // 2. Establece un formato por defecto (Jpeg) por si no hay coincidencias.
     let mut chosen_format = ImageFormat::Jpeg;
 
     // 3. Revisa el header "Accept" del cliente.
@@ -76,17 +81,20 @@ async fn handler(
         }
     }
 
-    match query_result {
-        Ok(Query(size)) => {
-            // Usamos format! para crear un nuevo String con ambos datos.
-            // {:?} es el "formateador de depuración", que imprimirá el enum ImageFormat de forma legible.
-            let response_string = format!("Ruta solicitada: {}\nFormato elegido: {:?}", path, chosen_format);
-            println!("{:#?}", size); // Mantenemos el log para la consola
-            Ok(response_string)
-        }
-        Err(rejection) => Err((StatusCode::BAD_REQUEST, format!("Error en los parámetros de la consulta: {}", rejection))),
+    // Llama a la función para convertir la imagen y obtener los bytes.
+    match convert_image(&path, chosen_format) {
+        Ok(image_bytes) => {
+            let mime_type = get_mime_from_format(chosen_format);
+            let mut headers = HeaderMap::new();
+            headers.insert(header::CONTENT_TYPE, HeaderValue::from_static(mime_type));
+
+            // Devuelve los headers y el cuerpo de la imagen.
+            Ok((headers, image_bytes))
+        },
+        Err(e) => Err((StatusCode::INTERNAL_SERVER_ERROR, format!("Error al procesar la imagen: {}", e))),
     }
 }
+
 async fn fallback() -> (StatusCode, &'static str) {
     (StatusCode::NOT_FOUND, "Not Found")
 }
