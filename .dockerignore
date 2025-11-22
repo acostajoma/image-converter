@@ -1,3 +1,29 @@
-/target
+# --- Build Artifacts ---
+target/
+**/*.rs.bk
+
+# --- Security & Config ---
+.env
+.env.*
+
+# --- Version Control ---
 .git
+.gitignore
 .history
+
+# --- IDE & Editor Settings ---
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# --- OS Files ---
+.DS_Store
+Thumbs.db
+
+# --- Docker ---
+docker-compose.yml
+Dockerfile
+Makefile
+manage.ps1
+README.md

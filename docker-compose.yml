@@ -1,0 +1,21 @@
+services:
+  app:
+    container_name: image-converter
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./images:/usr/src/app/images
+    env_file:
+      - .env
+    
+    deploy:
+      resources:
+        limits:
+          cpus: '4.0' 
+          memory: 1G
+        reservations:
+          memory: 256M
+    restart: unless-stopped

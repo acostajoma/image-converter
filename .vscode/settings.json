@@ -1,0 +1,17 @@
+{
+    "cSpell.words": [
+        "axum",
+        "etag",
+        "Jemalloc",
+        "jemallocator",
+        "libclang",
+        "libvips",
+        "msvc",
+        "RUSTFLAGS",
+        "thiserror",
+        "tikv",
+        "tokio",
+        "vips",
+        "Vips"
+    ]
+}

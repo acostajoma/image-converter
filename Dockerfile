@@ -1,31 +1,73 @@
-# Stage 1: Builder
-# We use the official Rust image as a builder.
-# The 'trixie' tag corresponds to the upcoming Debian 13.
-FROM rust:trixie as builder
+# ==============================================================================
+# STAGE 1: CHEF BASE (OS + System Tools)
+# ==============================================================================
+FROM rust:alpine3.20 AS chef
 
-# Create a new empty shell project
-WORKDIR /usr/src/app
+WORKDIR /app
 
-# Copy the dependency definitions
-COPY Cargo.toml Cargo.lock ./
+# Instalamos herramientas de compilación.
+# clang y clang-libclang son requeridos por bindgen.
+# musl-dev y build-base para el compilador de C.
+RUN apk add --no-cache \
+    build-base \
+    musl-dev \
+    vips-dev \
+    pkgconf \
+    clang \
+    clang-libclang
 
-# Copy the source code
-COPY src ./src
+RUN cargo install cargo-chef
+ENV RUSTFLAGS="-C target-feature=-crt-static"
 
-# Build the application in release mode
+# ==============================================================================
+# STAGE 2: PLANNER 
+# ==============================================================================
+FROM chef AS planner
+COPY . .
+RUN cargo chef prepare --recipe-path recipe.json
+
+# ==============================================================================
+# STAGE 3: BUILDER (Compila Dependencias y luego la App)
+# ==============================================================================
+FROM chef as builder
+
+# Dependency Cache
+COPY --from=planner /app/recipe.json recipe.json
+# "Cocina" las dependencias. Si tu Cargo.toml no cambió, Docker usa el caché de esta capa
+# y se salta la compilación de las ~200 librerías (ahorrando 5-10 minutos).
+# Avoid recompiling libraries if cargo.toml did not change
+RUN cargo chef cook --release --recipe-path recipe.json
+COPY . .
 RUN cargo build --release
 
-# Stage 2: Runner
-# We use a slim Debian image for a smaller footprint.
-FROM debian:trixie-slim as runner
+# ==============================================================================
+# STAGE 4: RUNNER
+# ==============================================================================
+FROM alpine:3.20 AS runner
 
-WORKDIR /usr/src/app
+WORKDIR /app
+RUN addgroup -S appgroup && adduser -S appuser -G appgroup
 
-# Copy the compiled binary from the builder stage
-COPY --from=builder /usr/src/app/target/release/image-converter .
+# Instalamos las librerías runtime de Vips
+RUN apk add --no-cache \
+    vips \
+    libheif \
+    aom-libs \
+    ca-certificates \
+    libgcc \
+    libimagequant
 
-# Expose port 3000 to the outside world
+# Copy the binary from the builder
+COPY --from=builder /app/target/release/image-converter /usr/local/bin/
+
+# Copy static files for the testing
+COPY images/ ./images/
+RUN chown -R appuser:appgroup /app
+
+
 EXPOSE 3000
+ENV RUST_LOG=info
 
-# Set the command to run the application
-CMD ["./image-converter"]
+USER appuser
+
+CMD ["image-converter"]
